@@ -1,8 +1,8 @@
-# 🧑‍💻 LinkedCode
+# LinkedCode
 
-An interactive, real-time coding workspace that enables multiple participants to code together seamlessly. Users can generate or access exclusive collaboration rooms through unique IDs, co-edit code in real time, engage in team discussions via built-in chat, and organize project files — all from a unified platform.
+An interactive, real-time coding workspace that enables multiple participants to code together seamlessly. Users can generate or access exclusive collaboration rooms through unique IDs, co-edit code in real time, engage in team discussions via built-in chat, and organize project files — all from a single platform.
 
-## ✨ Features
+## ✨ Core Features
 
 - 🖍️ **Collaborative Whiteboard**: Draw and sketch together in real-time 
 - 🤖 **AI Assistant (Copilot)**: Use AI to generate, insert, or replace code seamlessly
@@ -36,8 +36,6 @@ An interactive, real-time coding workspace that enables multiple participants to
 - Docker 
 
 ## ⚙️ Installation
-
-### Method 1: Manual Installation
 
 1. **Fork this repository:** Click the Fork button located in the top-right corner of this page.
 2. **Clone the repository:**
