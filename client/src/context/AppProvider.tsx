@@ -1,5 +1,6 @@
 import { ReactNode } from "react"
 import { AppContextProvider } from "./AppContext.js"
+import { AuthContextProvider } from "./AuthContext.js"
 import { ChatContextProvider } from "./ChatContext.jsx"
 import { FileContextProvider } from "./FileContext.jsx"
 import { RunCodeContextProvider } from "./RunCodeContext.jsx"
@@ -10,23 +11,25 @@ import { CopilotContextProvider } from "./CopilotContext.js"
 
 function AppProvider({ children }: { children: ReactNode }) {
     return (
-        <AppContextProvider>
-            <SocketProvider>
-                <SettingContextProvider>
-                    <ViewContextProvider>
-                        <FileContextProvider>
-                            <CopilotContextProvider>
-                                <RunCodeContextProvider>
-                                    <ChatContextProvider>
-                                        {children}
-                                    </ChatContextProvider>
-                                </RunCodeContextProvider>
-                            </CopilotContextProvider>
-                        </FileContextProvider>
-                    </ViewContextProvider>
-                </SettingContextProvider>
-            </SocketProvider>
-        </AppContextProvider>
+        <AuthContextProvider>
+            <AppContextProvider>
+                <SocketProvider>
+                    <SettingContextProvider>
+                        <ViewContextProvider>
+                            <FileContextProvider>
+                                <CopilotContextProvider>
+                                    <RunCodeContextProvider>
+                                        <ChatContextProvider>
+                                            {children}
+                                        </ChatContextProvider>
+                                    </RunCodeContextProvider>
+                                </CopilotContextProvider>
+                            </FileContextProvider>
+                        </ViewContextProvider>
+                    </SettingContextProvider>
+                </SocketProvider>
+            </AppContextProvider>
+        </AuthContextProvider>
     )
 }
 

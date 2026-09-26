@@ -19,6 +19,8 @@ import {
 	persistNodeRenamed,
 	seedRoomTreeIfEmpty,
 } from "./db/persistence"
+import authRouter from "./auth/routes"
+import { verifyToken } from "./auth/auth"
 
 dotenv.config()
 
@@ -32,6 +34,9 @@ app.use(express.json())
 app.use(cors())
 
 app.use(express.static(path.join(__dirname, "public"))) // Serve static files
+
+// Authentication routes (email/password + Google). Guests never hit these.
+app.use("/auth", authRouter)
 
 const server = http.createServer(app)
 const io = new Server(server, {
@@ -72,6 +77,11 @@ function getUserBySocketId(socketId: SocketId): User | null {
 }
 
 io.on("connection", (socket) => {
+	// Every socket carries an OPTIONAL JWT in its handshake. A valid token makes
+	// the socket an authenticated account; anything else (missing/expired) is a
+	// guest, and presence/collaboration work identically either way.
+	const auth = verifyToken(socket.handshake.auth?.token)
+
 	// Handle user actions
 	socket.on(SocketEvent.JOIN_REQUEST, async ({ roomId, username }) => {
 		// Check is username exist in the room
@@ -91,6 +101,15 @@ io.on("connection", (socket) => {
 			typing: false,
 			socketId: socket.id,
 			currentFile: null,
+			// Attach account identity when the socket is authenticated; guests
+			// leave these undefined.
+			...(auth
+				? {
+						userId: auth.userId,
+						email: auth.email,
+						avatarColor: auth.avatarColor,
+					}
+				: {}),
 		}
 		userSocketMap.push(user)
 		socket.join(roomId)

@@ -1,4 +1,5 @@
 import { useAppContext } from "@/context/AppContext"
+import { useAuth } from "@/context/AuthContext"
 import { useSocket } from "@/context/SocketContext"
 import { SocketEvent } from "@/types/socket"
 import { USER_STATUS } from "@/types/user"
@@ -11,6 +12,7 @@ import logo from "@/assets/logo.png"
 const FormComponent = () => {
     const location = useLocation()
     const { currentUser, setCurrentUser, status, setStatus } = useAppContext()
+    const { authUser } = useAuth()
     const { socket } = useSocket()
 
     const usernameRef = useRef<HTMLInputElement | null>(null)
@@ -53,6 +55,14 @@ const FormComponent = () => {
         setStatus(USER_STATUS.ATTEMPTING_JOIN)
         socket.emit(SocketEvent.JOIN_REQUEST, currentUser)
     }
+
+    // Prefill the username from the signed-in account so accounts don't retype
+    // it. Guests keep an empty field. Never overwrites what the user has typed.
+    useEffect(() => {
+        if (authUser && currentUser.username.length === 0) {
+            setCurrentUser({ ...currentUser, username: authUser.displayName })
+        }
+    }, [authUser, currentUser, setCurrentUser])
 
     useEffect(() => {
         if (currentUser.roomId.length > 0) return

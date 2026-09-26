@@ -16,6 +16,7 @@ import {
 import { toast } from "react-hot-toast"
 import { Socket, io } from "socket.io-client"
 import { useAppContext } from "./AppContext"
+import { useAuth } from "./AuthContext"
 
 const SocketContext = createContext<SocketContextType | null>(null)
 
@@ -38,6 +39,7 @@ const SocketProvider = ({ children }: { children: ReactNode }) => {
         drawingData,
         setDrawingData,
     } = useAppContext()
+    const { token } = useAuth()
     const socket: Socket = useMemo(
         () =>
             io(BACKEND_URL, {
@@ -45,6 +47,17 @@ const SocketProvider = ({ children }: { children: ReactNode }) => {
             }),
         [],
     )
+
+    // Carry the optional JWT in the handshake so the server can associate this
+    // socket with an account. Guests send no token and behave as before. When
+    // the token changes (sign in/out), reconnect so the new identity applies.
+    useEffect(() => {
+        socket.auth = token ? { token } : {}
+        if (socket.connected) {
+            socket.disconnect()
+            socket.connect()
+        }
+    }, [socket, token])
 
     const handleError = useCallback(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

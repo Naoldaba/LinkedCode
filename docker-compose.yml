@@ -7,6 +7,8 @@ services:
       target: runner
     environment:
       - MONGO_URI=mongodb://mongo:27017/LinkedCode
+      - JWT_SECRET=${JWT_SECRET:-linkedcode-dev-secret-change-me}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
     volumes:
       - ./server:/app
       - /build/node_modules
