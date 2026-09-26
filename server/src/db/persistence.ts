@@ -1,6 +1,7 @@
 import mongoose from "mongoose"
 import { Room } from "../models/Room"
 import { RoomFiles } from "../models/RoomFiles"
+import { RoomMembership } from "../models/RoomMembership"
 import { FileSystemItem } from "../types/file"
 import {
 	deleteNode,
@@ -54,19 +55,87 @@ export async function connectDB(): Promise<void> {
 }
 
 // Lazily create the Room document on first join and bump updatedAt otherwise.
-export async function ensureRoom(roomId: string): Promise<void> {
+// When the first participant to open a room is a signed-in account, they become
+// its owner; guest-created rooms keep `ownerId: null`. Ownership is only set on
+// insert, so an existing room's owner is never reassigned by a later joiner.
+export async function ensureRoom(
+	roomId: string,
+	ownerId?: string
+): Promise<void> {
 	if (!dbReady) return
 	try {
 		await Room.updateOne(
 			{ roomId },
 			{
-				$setOnInsert: { roomId, name: roomId, ownerId: null },
+				$setOnInsert: { roomId, name: roomId, ownerId: ownerId ?? null },
 				$set: { updatedAt: new Date() },
 			},
 			{ upsert: true }
 		)
 	} catch (err) {
 		console.error("ensureRoom failed:", (err as Error).message)
+	}
+}
+
+// Record (or refresh) a signed-in account's membership of a room so it shows up
+// in their "My rooms" list, most-recently-opened first. Guests never call this.
+export async function recordRoomMembership(
+	userId: string,
+	roomId: string
+): Promise<void> {
+	if (!dbReady) return
+	try {
+		await RoomMembership.updateOne(
+			{ userId, roomId },
+			{
+				$set: { lastOpenedAt: new Date() },
+				$setOnInsert: { userId, roomId },
+			},
+			{ upsert: true }
+		)
+	} catch (err) {
+		console.error("recordRoomMembership failed:", (err as Error).message)
+	}
+}
+
+// One entry in a signed-in account's "My rooms" list.
+export interface UserRoomSummary {
+	roomId: string
+	name: string
+	lastOpenedAt: Date
+	isOwner: boolean
+}
+
+// The rooms a signed-in account has opened, newest first, joined with each
+// room's current metadata (name, ownership).
+export async function getRoomsForUser(
+	userId: string
+): Promise<UserRoomSummary[]> {
+	if (!dbReady) return []
+	try {
+		const memberships = await RoomMembership.find({ userId })
+			.sort({ lastOpenedAt: -1 })
+			.lean()
+		if (memberships.length === 0) return []
+
+		const roomIds = memberships.map((m) => m.roomId)
+		const rooms = await Room.find({ roomId: { $in: roomIds } }).lean()
+		const roomsById = new Map(rooms.map((r) => [r.roomId, r]))
+
+		return memberships.map((m) => {
+			const room = roomsById.get(m.roomId)
+			return {
+				roomId: m.roomId,
+				name: room?.name ?? m.roomId,
+				lastOpenedAt: m.lastOpenedAt,
+				isOwner: room?.ownerId
+					? String(room.ownerId) === String(userId)
+					: false,
+			}
+		})
+	} catch (err) {
+		console.error("getRoomsForUser failed:", (err as Error).message)
+		return []
 	}
 }
 

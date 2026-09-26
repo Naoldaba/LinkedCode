@@ -1,6 +1,7 @@
 import illustration from "@/assets/illustration.png"
 import FormComponent from "@/components/forms/FormComponent"
 import AuthPanel from "@/components/forms/AuthPanel"
+import MyRooms from "@/components/rooms/MyRooms"
 import Footer from "@/components/common/Footer";
 
 function HomePage() {
@@ -16,6 +17,7 @@ function HomePage() {
                 </div>
                 <div className="flex w-full flex-col items-center justify-center gap-6 sm:w-1/2">
                     <AuthPanel />
+                    <MyRooms />
                     <FormComponent />
                 </div>
             </div>

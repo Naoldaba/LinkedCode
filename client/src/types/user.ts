@@ -6,6 +6,13 @@ enum USER_CONNECTION_STATUS {
 interface User {
     username: string
     roomId: string
+    // Present once the server accepts the join. It is the central, stable
+    // per-user color (account avatarColor or a deterministic guest color) used
+    // for cursors/avatars; undefined until then and for the pre-join form user.
+    avatarColor?: string
+    // Present only for signed-in accounts; guests leave these undefined.
+    userId?: string
+    email?: string
 }
 
 interface RemoteUser extends User {

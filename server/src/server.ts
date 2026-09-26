@@ -17,10 +17,12 @@ import {
 	persistFileUpdated,
 	persistNodeDeleted,
 	persistNodeRenamed,
+	recordRoomMembership,
 	seedRoomTreeIfEmpty,
 } from "./db/persistence"
 import authRouter from "./auth/routes"
-import { verifyToken } from "./auth/auth"
+import roomsRouter from "./rooms/routes"
+import { colorForKey, verifyToken } from "./auth/auth"
 
 dotenv.config()
 
@@ -37,6 +39,9 @@ app.use(express.static(path.join(__dirname, "public"))) // Serve static files
 
 // Authentication routes (email/password + Google). Guests never hit these.
 app.use("/auth", authRouter)
+
+// Account-scoped room routes ("My rooms"). Requires a valid JWT; guests get 401.
+app.use("/rooms", roomsRouter)
 
 const server = http.createServer(app)
 const io = new Server(server, {
@@ -101,13 +106,17 @@ io.on("connection", (socket) => {
 			typing: false,
 			socketId: socket.id,
 			currentFile: null,
+			// Central, stable per-user color: the account's avatarColor when
+			// signed in, otherwise a deterministic color derived from the guest's
+			// username. This is the single source for cursor/avatar color (Phase 5)
+			// so it never uses react-avatar's auto-color.
+			avatarColor: auth?.avatarColor ?? colorForKey(username),
 			// Attach account identity when the socket is authenticated; guests
 			// leave these undefined.
 			...(auth
 				? {
 						userId: auth.userId,
 						email: auth.email,
-						avatarColor: auth.avatarColor,
 					}
 				: {}),
 		}
@@ -117,8 +126,13 @@ io.on("connection", (socket) => {
 		const users = getUsersInRoom(roomId)
 		io.to(socket.id).emit(SocketEvent.JOIN_ACCEPTED, { user, users })
 
-		// Persistence: lazily create the room, then restore its saved files.
-		await ensureRoom(roomId)
+		// Persistence: lazily create the room (the first signed-in participant
+		// becomes its owner), record this account's membership for "My rooms",
+		// then restore its saved files.
+		await ensureRoom(roomId, auth?.userId)
+		if (auth) {
+			void recordRoomMembership(auth.userId, roomId)
+		}
 		const tree = await getRoomTree(roomId)
 		if (tree) {
 			// Room has saved files — restore them straight from the database
