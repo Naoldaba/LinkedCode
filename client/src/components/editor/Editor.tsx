@@ -53,6 +53,10 @@ function Editor() {
     const lastSentRef = useRef(0)
     const pendingRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+    // Tracks which file this user's cursor was last broadcast for, so we can
+    // detect file switches and move/hide the cursor accordingly (Phase 8).
+    const prevFileIdRef = useRef<string | null>(activeFile?.id ?? null)
+
     useEffect(() => {
         activeFileRef.current = activeFile
     }, [activeFile])
@@ -77,37 +81,46 @@ function Editor() {
         setTimeOut(newTimeOut)
     }
 
-    // Emit this user's caret/selection to the room. Sends only positions and the
-    // active file id — never file contents (Phase 6). Identity/color are stamped
-    // by the server.
-    const emitCursor = useCallback(() => {
-        const state = latestStateRef.current
-        const file = activeFileRef.current
-        if (!state || !file) return
+    // Emit this user's caret/selection for a given editor state and file. Sends
+    // only positions and the active file id — never file contents (Phase 6).
+    // Identity/color are stamped by the server.
+    const emitCursorForState = useCallback(
+        (state: EditorState | null, fileId: string | undefined) => {
+            if (!state || !fileId) return
 
-        const sel = state.selection.main
-        const headLine = state.doc.lineAt(sel.head)
-        const position = {
-            line: headLine.number,
-            column: sel.head - headLine.from,
-        }
-
-        let selection: RemoteCursor["selection"]
-        if (!sel.empty) {
-            const fromLine = state.doc.lineAt(sel.from)
-            const toLine = state.doc.lineAt(sel.to)
-            selection = {
-                start: { line: fromLine.number, column: sel.from - fromLine.from },
-                end: { line: toLine.number, column: sel.to - toLine.from },
+            const sel = state.selection.main
+            const headLine = state.doc.lineAt(sel.head)
+            const position = {
+                line: headLine.number,
+                column: sel.head - headLine.from,
             }
-        }
 
-        socket.emit(SocketEvent.CURSOR_UPDATE, {
-            fileId: file.id,
-            position,
-            selection,
-        })
-    }, [socket])
+            let selection: RemoteCursor["selection"]
+            if (!sel.empty) {
+                const fromLine = state.doc.lineAt(sel.from)
+                const toLine = state.doc.lineAt(sel.to)
+                selection = {
+                    start: {
+                        line: fromLine.number,
+                        column: sel.from - fromLine.from,
+                    },
+                    end: { line: toLine.number, column: sel.to - toLine.from },
+                }
+            }
+
+            socket.emit(SocketEvent.CURSOR_UPDATE, {
+                fileId,
+                position,
+                selection,
+            })
+        },
+        [socket],
+    )
+
+    // Emit from the latest state/file seen by the throttled updater.
+    const emitCursor = useCallback(() => {
+        emitCursorForState(latestStateRef.current, activeFileRef.current?.id)
+    }, [emitCursorForState])
 
     // Throttle emissions to at most one per CURSOR_THROTTLE_MS, with a trailing
     // call so the final resting position is always sent.
@@ -162,12 +175,34 @@ function Editor() {
         }
     }, [socket])
 
-    // Clear the trailing-emit timer on unmount.
+    // File switching (Phase 8). When this user changes the active file, move
+    // their cursor with them: re-broadcast it stamped with the new file id, which
+    // makes peers viewing the old file drop it (they filter by file id) and peers
+    // viewing the new file show it. If no file is open, remove the cursor
+    // entirely. Reads the live view state, which already reflects the new file's
+    // document by the time this parent effect runs.
+    useEffect(() => {
+        const nextId = activeFile?.id ?? null
+        if (prevFileIdRef.current === nextId) return
+        prevFileIdRef.current = nextId
+
+        if (nextId) {
+            emitCursorForState(view?.state ?? latestStateRef.current, nextId)
+        } else {
+            socket.emit(SocketEvent.CURSOR_REMOVE)
+        }
+    }, [activeFile?.id, view, emitCursorForState, socket])
+
+    // Clear the trailing-emit timer on unmount, and proactively remove this
+    // user's cursor from the room (Phase 8: leaving the editor / switching
+    // rooms). On a full disconnect the server also cleans this up, but emitting
+    // here clears it immediately while the socket is still connected.
     useEffect(() => {
         return () => {
             if (pendingRef.current) clearTimeout(pendingRef.current)
+            socket.emit(SocketEvent.CURSOR_REMOVE)
         }
-    }, [])
+    }, [socket])
 
     // Push the cursors for the CURRENT file into the editor. Cursors in other
     // files are filtered out so only collaborators editing this file are shown
