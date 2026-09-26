@@ -5,6 +5,8 @@ services:
       context: ./server
       dockerfile: Dockerfile
       target: runner
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/LinkedCode
     volumes:
       - ./server:/app
       - /build/node_modules
@@ -12,6 +14,19 @@ services:
       - Linked-Code
     ports:
       - "3000:3000"
+    depends_on:
+      - mongo
+
+  mongo:
+    container_name: linked-code-mongo
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - Linked-Code
+    ports:
+      - "27017:27017"
 
   client:
     container_name: linked-code-client
@@ -32,3 +47,6 @@ services:
 networks:
   Linked-Code:
     driver: bridge
+
+volumes:
+  mongo-data:
