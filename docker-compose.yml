@@ -36,9 +36,11 @@ services:
       context: ./client
       dockerfile: Dockerfile
       target: runner
-    volumes:
-      - ./client:/app
-      - /build/node_modules
+      args:
+        # Local testing talks to the local server (exposed on the host as
+        # localhost:3000). Production images build without this override and
+        # fall back to the deployed backend baked into the Dockerfile.
+        VITE_BACKEND_URL: ${VITE_BACKEND_URL:-http://localhost:3000}
     networks:
       - Linked-Code
     ports:

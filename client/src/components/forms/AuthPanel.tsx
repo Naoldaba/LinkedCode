@@ -1,22 +1,34 @@
 import { useAuth } from "@/context/AuthContext"
 import { GoogleLogin } from "@react-oauth/google"
-import { FormEvent, useState } from "react"
+import { FormEvent, useEffect, useState } from "react"
 import { toast } from "react-hot-toast"
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ""
 
 type Mode = "login" | "signup"
 
-// Optional sign-in panel shown alongside the guest join form. Signing in is
-// never required — it just layers accounts on top of the guest flow.
+// Optional sign-in shown alongside the guest join form. Signed out it is just a
+// button; clicking it opens the sign-in/up dialog. Signing in is never required
+// — it only layers accounts on top of the guest flow.
 const AuthPanel = () => {
     const { authUser, isAuthenticated, login, signup, loginWithGoogle, logout } =
         useAuth()
+    const [open, setOpen] = useState(false)
     const [mode, setMode] = useState<Mode>("login")
     const [email, setEmail] = useState("")
     const [password, setPassword] = useState("")
     const [displayName, setDisplayName] = useState("")
     const [submitting, setSubmitting] = useState(false)
+
+    // Close the dialog with Escape while it's open.
+    useEffect(() => {
+        if (!open) return
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") setOpen(false)
+        }
+        window.addEventListener("keydown", onKey)
+        return () => window.removeEventListener("keydown", onKey)
+    }, [open])
 
     // Signed-in view: a compact identity chip with a sign-out button.
     if (isAuthenticated && authUser) {
@@ -60,6 +72,7 @@ const AuthPanel = () => {
                 await login(email, password)
                 toast.success("Signed in")
             }
+            setOpen(false)
         } catch (err) {
             toast.error((err as Error).message)
         } finally {
@@ -75,86 +88,130 @@ const AuthPanel = () => {
         try {
             await loginWithGoogle(credential)
             toast.success("Signed in with Google")
+            setOpen(false)
         } catch (err) {
             toast.error((err as Error).message)
         }
     }
 
     return (
-        <div className="flex w-full max-w-[500px] flex-col gap-4 rounded-md border border-gray-600 bg-darkHover p-4 sm:w-[500px] sm:p-6">
-            <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">
-                    {mode === "login" ? "Sign in" : "Create account"}
-                </h2>
-                <button
-                    type="button"
-                    className="text-sm text-primary underline"
-                    onClick={() =>
-                        setMode(mode === "login" ? "signup" : "login")
-                    }
-                >
-                    {mode === "login"
-                        ? "Need an account?"
-                        : "Have an account?"}
-                </button>
-            </div>
+        <div className="flex w-full max-w-[500px] justify-center sm:w-[500px]">
+            {/* Signed-out trigger */}
+            <button
+                type="button"
+                onClick={() => setOpen(true)}
+                className="w-full rounded-md border border-gray-500 bg-darkHover px-8 py-3 text-lg font-semibold hover:bg-dark"
+            >
+                Sign in / Sign up
+            </button>
 
-            <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-                {mode === "signup" && (
-                    <input
-                        type="text"
-                        placeholder="Display name (optional)"
-                        className="w-full rounded-md border border-gray-500 bg-dark px-3 py-2.5 focus:outline-none"
-                        value={displayName}
-                        onChange={(e) => setDisplayName(e.target.value)}
-                    />
-                )}
-                <input
-                    type="email"
-                    placeholder="Email"
-                    autoComplete="email"
-                    className="w-full rounded-md border border-gray-500 bg-dark px-3 py-2.5 focus:outline-none"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                />
-                <input
-                    type="password"
-                    placeholder="Password"
-                    autoComplete={
-                        mode === "login" ? "current-password" : "new-password"
-                    }
-                    className="w-full rounded-md border border-gray-500 bg-dark px-3 py-2.5 focus:outline-none"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                />
-                <button
-                    type="submit"
-                    disabled={submitting}
-                    className="mt-1 w-full rounded-md bg-primary px-8 py-2.5 font-semibold text-black disabled:opacity-60"
+            {open && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+                    onClick={() => setOpen(false)}
                 >
-                    {mode === "login" ? "Sign in" : "Create account"}
-                </button>
-            </form>
+                    <div
+                        className="flex w-full max-w-[440px] flex-col gap-4 rounded-md border border-gray-600 bg-darkHover p-5 sm:p-6"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-lg font-semibold">
+                                {mode === "login"
+                                    ? "Sign in"
+                                    : "Create account"}
+                            </h2>
+                            <button
+                                type="button"
+                                aria-label="Close"
+                                className="text-2xl leading-none text-gray-400 hover:text-white"
+                                onClick={() => setOpen(false)}
+                            >
+                                &times;
+                            </button>
+                        </div>
 
-            {GOOGLE_CLIENT_ID && (
-                <>
-                    <div className="flex items-center gap-3 text-xs text-gray-400">
-                        <span className="h-px flex-1 bg-gray-600" />
-                        or
-                        <span className="h-px flex-1 bg-gray-600" />
-                    </div>
-                    <div className="flex justify-center">
-                        <GoogleLogin
-                            onSuccess={(cred) =>
-                                handleGoogle(cred.credential)
+                        <form
+                            onSubmit={handleSubmit}
+                            className="flex flex-col gap-3"
+                        >
+                            {mode === "signup" && (
+                                <input
+                                    type="text"
+                                    placeholder="Display name (optional)"
+                                    className="w-full rounded-md border border-gray-500 bg-dark px-3 py-2.5 focus:outline-none"
+                                    value={displayName}
+                                    onChange={(e) =>
+                                        setDisplayName(e.target.value)
+                                    }
+                                />
+                            )}
+                            <input
+                                type="email"
+                                placeholder="Email"
+                                autoComplete="email"
+                                className="w-full rounded-md border border-gray-500 bg-dark px-3 py-2.5 focus:outline-none"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                            />
+                            <input
+                                type="password"
+                                placeholder="Password"
+                                autoComplete={
+                                    mode === "login"
+                                        ? "current-password"
+                                        : "new-password"
+                                }
+                                className="w-full rounded-md border border-gray-500 bg-dark px-3 py-2.5 focus:outline-none"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                            />
+                            <button
+                                type="submit"
+                                disabled={submitting}
+                                className="mt-1 w-full rounded-md bg-primary px-8 py-2.5 font-semibold text-black disabled:opacity-60"
+                            >
+                                {mode === "login"
+                                    ? "Sign in"
+                                    : "Create account"}
+                            </button>
+                        </form>
+
+                        {GOOGLE_CLIENT_ID && (
+                            <>
+                                <div className="flex items-center gap-3 text-xs text-gray-400">
+                                    <span className="h-px flex-1 bg-gray-600" />
+                                    or
+                                    <span className="h-px flex-1 bg-gray-600" />
+                                </div>
+                                <div className="flex justify-center">
+                                    <GoogleLogin
+                                        onSuccess={(cred) =>
+                                            handleGoogle(cred.credential)
+                                        }
+                                        onError={() =>
+                                            toast.error("Google sign-in failed")
+                                        }
+                                        theme="filled_black"
+                                        text="continue_with"
+                                        shape="rectangular"
+                                    />
+                                </div>
+                            </>
+                        )}
+
+                        <button
+                            type="button"
+                            className="text-sm text-primary underline"
+                            onClick={() =>
+                                setMode(mode === "login" ? "signup" : "login")
                             }
-                            onError={() => toast.error("Google sign-in failed")}
-                            theme="filled_black"
-                            text="continue_with"
-                            shape="rectangular"
-                        />
+                        >
+                            {mode === "login"
+                                ? "Need an account? Sign up"
+                                : "Have an account? Sign in"}
+                        </button>
                     </div>
-                </>
+                </div>
             )}
         </div>
     )

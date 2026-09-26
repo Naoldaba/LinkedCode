@@ -24,6 +24,7 @@ import authRouter from "./auth/routes"
 import roomsRouter from "./rooms/routes"
 import { colorForKey, verifyToken } from "./auth/auth"
 import { CursorUpdatePayload } from "./types/cursor"
+import { pistonRouter } from "./piston/piston"
 
 dotenv.config()
 
@@ -43,6 +44,10 @@ app.use("/auth", authRouter)
 
 // Account-scoped room routes ("My rooms"). Requires a valid JWT; guests get 401.
 app.use("/rooms", roomsRouter)
+
+// Code execution proxy. The client calls our backend, which adapts requests to
+// the Wandbox execution service (keyless). Named /piston for client compatibility.
+app.use("/piston", pistonRouter)
 
 const server = http.createServer(app)
 const io = new Server(server, {
