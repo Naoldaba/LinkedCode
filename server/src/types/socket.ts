@@ -28,6 +28,10 @@ enum SocketEvent {
 	REQUEST_DRAWING = "request-drawing",
 	SYNC_DRAWING = "sync-drawing",
 	DRAWING_UPDATE = "drawing-update",
+	// Ephemeral multi-cursor sync (Phase 6). Relayed room-scoped only, never
+	// persisted, and never carrying file contents.
+	CURSOR_UPDATE = "cursor:update",
+	CURSOR_REMOVE = "cursor:remove",
 }
 
 interface SocketContext {

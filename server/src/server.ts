@@ -23,6 +23,7 @@ import {
 import authRouter from "./auth/routes"
 import roomsRouter from "./rooms/routes"
 import { colorForKey, verifyToken } from "./auth/auth"
+import { CursorUpdatePayload } from "./types/cursor"
 
 dotenv.config()
 
@@ -156,6 +157,10 @@ io.on("connection", (socket) => {
 		socket.broadcast
 			.to(roomId)
 			.emit(SocketEvent.USER_DISCONNECTED, { user })
+		// Remove this collaborator's remote cursor from everyone else's editor.
+		socket.broadcast
+			.to(roomId)
+			.emit(SocketEvent.CURSOR_REMOVE, { socketId: socket.id })
 		userSocketMap = userSocketMap.filter((u) => u.socketId !== socket.id)
 		socket.leave(roomId)
 		// Flush any debounced content writes so nothing is lost when the last
@@ -327,6 +332,37 @@ io.on("connection", (socket) => {
 		if (!user) return
 		const roomId = user.roomId
 		socket.broadcast.to(roomId).emit(SocketEvent.TYPING_PAUSE, { user })
+	})
+
+	// Ephemeral multi-cursor sync (Phase 6). Relay a collaborator's caret /
+	// selection to the rest of THEIR room only. Membership is validated via the
+	// socket's known user; identity and color are stamped server-side (never
+	// trusted from the client), and no file contents are carried.
+	socket.on(
+		SocketEvent.CURSOR_UPDATE,
+		({ fileId, position, selection }: CursorUpdatePayload) => {
+			const user = getUserBySocketId(socket.id)
+			if (!user) return
+			if (!fileId || !position) return
+			socket.broadcast.to(user.roomId).emit(SocketEvent.CURSOR_UPDATE, {
+				socketId: socket.id,
+				userId: user.userId,
+				username: user.username,
+				color: user.avatarColor ?? colorForKey(user.username),
+				fileId,
+				position,
+				selection,
+			})
+		}
+	)
+
+	// A collaborator's cursor should disappear (e.g. they left the file).
+	socket.on(SocketEvent.CURSOR_REMOVE, () => {
+		const user = getUserBySocketId(socket.id)
+		if (!user) return
+		socket.broadcast
+			.to(user.roomId)
+			.emit(SocketEvent.CURSOR_REMOVE, { socketId: socket.id })
 	})
 
 	socket.on(SocketEvent.REQUEST_DRAWING, () => {

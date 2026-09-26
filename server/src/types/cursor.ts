@@ -26,3 +26,25 @@ export interface CollaboratorCursor {
 		end: CursorPosition
 	}
 }
+
+// What a client sends on `cursor:update`: only where the caret/selection is and
+// in which file. Identity and color are NOT trusted from the client — the
+// server stamps them from the socket's known user (Phase 6). No file contents.
+export interface CursorUpdatePayload {
+	fileId: string
+	position: CursorPosition
+	selection?: {
+		start: CursorPosition
+		end: CursorPosition
+	}
+}
+
+// What the server broadcasts to the rest of the room. `socketId` is the stable
+// per-connection key used to track and remove a collaborator's cursor (guests
+// have no userId, so socketId is the reliable identifier).
+export interface RemoteCursorPayload extends CursorUpdatePayload {
+	socketId: string
+	userId?: string
+	username: string
+	color: string
+}
