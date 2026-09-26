@@ -652,6 +652,14 @@ function FileContextProvider({ children }: { children: ReactNode }) {
         [activeFile, drawingData, fileStructure, openFiles, setUsers, socket],
     )
 
+    // The server asks the first participant of a brand-new room to send its
+    // current structure so it can be persisted (seed the database).
+    const handlePersistRequest = useCallback(() => {
+        socket.emit(SocketEvent.PERSIST_FILE_STRUCTURE, {
+            fileStructure,
+        })
+    }, [fileStructure, socket])
+
     const handleFileStructureSync = useCallback(
         ({
             fileStructure,
@@ -744,6 +752,7 @@ function FileContextProvider({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         socket.once(SocketEvent.SYNC_FILE_STRUCTURE, handleFileStructureSync)
+        socket.on(SocketEvent.REQUEST_FILE_STRUCTURE, handlePersistRequest)
         socket.on(SocketEvent.USER_JOINED, handleUserJoined)
         socket.on(SocketEvent.DIRECTORY_CREATED, handleDirCreated)
         socket.on(SocketEvent.DIRECTORY_UPDATED, handleDirUpdated)
@@ -755,6 +764,7 @@ function FileContextProvider({ children }: { children: ReactNode }) {
         socket.on(SocketEvent.FILE_DELETED, handleFileDeleted)
 
         return () => {
+            socket.off(SocketEvent.REQUEST_FILE_STRUCTURE)
             socket.off(SocketEvent.USER_JOINED)
             socket.off(SocketEvent.DIRECTORY_CREATED)
             socket.off(SocketEvent.DIRECTORY_UPDATED)
@@ -775,6 +785,7 @@ function FileContextProvider({ children }: { children: ReactNode }) {
         handleFileRenamed,
         handleFileStructureSync,
         handleFileUpdated,
+        handlePersistRequest,
         handleUserJoined,
         socket,
     ])
