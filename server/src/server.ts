@@ -6,8 +6,24 @@ import { SocketEvent, SocketId } from "./types/socket"
 import { USER_CONNECTION_STATUS, User } from "./types/user"
 import { Server } from "socket.io"
 import path from "path"
+import {
+	connectDB,
+	ensureRoom,
+	flushRoomWrites,
+	getRoomTree,
+	persistDirectoryCreated,
+	persistDirectoryUpdated,
+	persistFileCreated,
+	persistFileUpdated,
+	persistNodeDeleted,
+	persistNodeRenamed,
+	seedRoomTreeIfEmpty,
+} from "./db/persistence"
 
 dotenv.config()
+
+// Connect to MongoDB (no-op / relay-only if MONGO_URI is unset or unreachable).
+connectDB()
 
 const app = express()
 
@@ -57,7 +73,7 @@ function getUserBySocketId(socketId: SocketId): User | null {
 
 io.on("connection", (socket) => {
 	// Handle user actions
-	socket.on(SocketEvent.JOIN_REQUEST, ({ roomId, username }) => {
+	socket.on(SocketEvent.JOIN_REQUEST, async ({ roomId, username }) => {
 		// Check is username exist in the room
 		const isUsernameExist = getUsersInRoom(roomId).filter(
 			(u) => u.username === username
@@ -81,6 +97,23 @@ io.on("connection", (socket) => {
 		socket.broadcast.to(roomId).emit(SocketEvent.USER_JOINED, { user })
 		const users = getUsersInRoom(roomId)
 		io.to(socket.id).emit(SocketEvent.JOIN_ACCEPTED, { user, users })
+
+		// Persistence: lazily create the room, then restore its saved files.
+		await ensureRoom(roomId)
+		const tree = await getRoomTree(roomId)
+		if (tree) {
+			// Room has saved files — restore them straight from the database
+			// (the authoritative path, replacing the fragile peer-push).
+			io.to(socket.id).emit(SocketEvent.SYNC_FILE_STRUCTURE, {
+				fileStructure: tree,
+				openFiles: [],
+				activeFile: null,
+			})
+		} else if (users.length === 1) {
+			// Brand-new room whose first participant is this user: ask them to
+			// send their current structure so we can seed the database with it.
+			io.to(socket.id).emit(SocketEvent.REQUEST_FILE_STRUCTURE)
+		}
 	})
 
 	socket.on("disconnecting", () => {
@@ -92,12 +125,22 @@ io.on("connection", (socket) => {
 			.emit(SocketEvent.USER_DISCONNECTED, { user })
 		userSocketMap = userSocketMap.filter((u) => u.socketId !== socket.id)
 		socket.leave(roomId)
+		// Flush any debounced content writes so nothing is lost when the last
+		// participant leaves the room.
+		flushRoomWrites(roomId)
 	})
 
 	// Handle file actions
 	socket.on(
 		SocketEvent.SYNC_FILE_STRUCTURE,
 		({ fileStructure, openFiles, activeFile, socketId }) => {
+			// A live peer is pushing the current structure to a new joiner —
+			// seed the database from it too, in case the room was never saved
+			// (e.g. peers joined before the first user seeded it).
+			const roomId = getRoomId(socket.id)
+			if (roomId && fileStructure) {
+				seedRoomTreeIfEmpty(roomId, fileStructure)
+			}
 			io.to(socketId).emit(SocketEvent.SYNC_FILE_STRUCTURE, {
 				fileStructure,
 				openFiles,
@@ -105,6 +148,14 @@ io.on("connection", (socket) => {
 			})
 		}
 	)
+
+	// A joiner responding to REQUEST_FILE_STRUCTURE: seed the room's saved
+	// files from their current structure (no-op if already seeded).
+	socket.on(SocketEvent.PERSIST_FILE_STRUCTURE, ({ fileStructure }) => {
+		const roomId = getRoomId(socket.id)
+		if (!roomId || !fileStructure) return
+		seedRoomTreeIfEmpty(roomId, fileStructure)
+	})
 
 	socket.on(
 		SocketEvent.DIRECTORY_CREATED,
@@ -115,6 +166,7 @@ io.on("connection", (socket) => {
 				parentDirId,
 				newDirectory,
 			})
+			persistDirectoryCreated(roomId, parentDirId, newDirectory)
 		}
 	)
 
@@ -125,15 +177,16 @@ io.on("connection", (socket) => {
 			dirId,
 			children,
 		})
+		persistDirectoryUpdated(roomId, dirId, children)
 	})
 
-	socket.on(SocketEvent.DIRECTORY_RENAMED, ({ dirId, newName }) => {
+	socket.on(SocketEvent.DIRECTORY_RENAMED, (payload) => {
+		const { dirId, newName, newDirName } = payload
 		const roomId = getRoomId(socket.id)
 		if (!roomId) return
-		socket.broadcast.to(roomId).emit(SocketEvent.DIRECTORY_RENAMED, {
-			dirId,
-			newName,
-		})
+		socket.broadcast.to(roomId).emit(SocketEvent.DIRECTORY_RENAMED, payload)
+		// The client sends the new name as `newDirName`; accept either field.
+		persistNodeRenamed(roomId, dirId, newName ?? newDirName)
 	})
 
 	socket.on(SocketEvent.DIRECTORY_DELETED, ({ dirId }) => {
@@ -142,6 +195,7 @@ io.on("connection", (socket) => {
 		socket.broadcast
 			.to(roomId)
 			.emit(SocketEvent.DIRECTORY_DELETED, { dirId })
+		persistNodeDeleted(roomId, dirId)
 	})
 
 	socket.on(SocketEvent.FILE_CREATED, ({ parentDirId, newFile }) => {
@@ -150,6 +204,7 @@ io.on("connection", (socket) => {
 		socket.broadcast
 			.to(roomId)
 			.emit(SocketEvent.FILE_CREATED, { parentDirId, newFile })
+		persistFileCreated(roomId, parentDirId, newFile)
 	})
 
 	socket.on(SocketEvent.FILE_UPDATED, ({ fileId, newContent }) => {
@@ -159,6 +214,8 @@ io.on("connection", (socket) => {
 			fileId,
 			newContent,
 		})
+		// Debounced: never writes to the DB on every keystroke.
+		persistFileUpdated(roomId, fileId, newContent)
 	})
 
 	socket.on(SocketEvent.FILE_RENAMED, ({ fileId, newName }) => {
@@ -168,12 +225,14 @@ io.on("connection", (socket) => {
 			fileId,
 			newName,
 		})
+		persistNodeRenamed(roomId, fileId, newName)
 	})
 
 	socket.on(SocketEvent.FILE_DELETED, ({ fileId }) => {
 		const roomId = getRoomId(socket.id)
 		if (!roomId) return
 		socket.broadcast.to(roomId).emit(SocketEvent.FILE_DELETED, { fileId })
+		persistNodeDeleted(roomId, fileId)
 	})
 
 	// Handle user status
